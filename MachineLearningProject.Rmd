@@ -1,0 +1,108 @@
+---
+title: "Machine Learning Project"
+author: "ch8stanford@gmail.com"
+date: "December 26, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive summary
+
+The goal of this project is to predict the manner in which participants exercised based on the data from the following website: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har, which is the "classe" variable in the training set. Since it is a classification problem, we decided early on that a random forest model should be tried, with a Generalized Boosted Model (the "GBM" model) as a reserve. To our delight, the random forest model achieved an accuracy rate of over 99% on both the testing and the valuation data sets, which exceeded the performance of the backup GBM model. We therefore used our random forest prediction model to predict the 20 different test cases.
+
+## Loading relevant library and data
+
+The following R code load up the necessary data and analytical packages.
+```{r}
+library(caret)
+library (randomForest)
+test<-read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+train<-read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+## Data Cleaning
+
+Next we remove columns that are obviously not predictors (i.e., the first 7 columns) and columns that have variables with mostly NAs (use threshold of >60%). Such data cleanups help both the speed and the accuracy of the model testings.
+```{r}
+train_SUB <- train
+train_SUB <- train_SUB[,8:length(train_SUB)]
+for (i in 1:length(train)) {
+  if (sum(is.na(train[ , i])) / nrow(train) >= .6) {
+    for (j in 1:length(train_SUB)) {
+      if (length(grep(names(train[i]), names(train_SUB)[j]))==1) {
+        train_SUB <- train_SUB[ , -j]
+      }
+    }
+  }
+}
+
+dim(train_SUB)
+```
+
+## Create a bulding data set and validation set
+
+Since this is a classification problem, an obvious candidate is the random forest approach. Random forest has certain possible advantages over other forms of classification models, including:
+
+* Reduction in overfitting: by averaging several trees, there is a significantly lower risk of overfitting.
+* Less variance: by using multiple trees, one reduces the chance of stumbling across a classifier that doesn't perform well because of the relationship between the train and test data.
+
+As a consequence, random forests are often quite accurate. Yet, to be safe, we have also choosen the GBM model as the reserve, which can also be used in combination with the random forest approach as part of an ensembling method of learning. The GBM model uses boosting and is also known as one of the most widely-used and accurate prediction models. 
+
+Since we may wish to combine the random forest model with the GBM model as an ensembling method, we proceeded to divide the training data into 3 parts under the following R code: training, testing, and validation.
+
+```{r}
+inBuild<-createDataPartition(y=train_SUB$classe,p=.7,list=FALSE)
+validation<-train_SUB[-inBuild,]
+buildData<-train_SUB[inBuild,]
+inTrain<-createDataPartition(y=buildData$classe,p=.7,list=FALSE)
+training<-buildData[inTrain,]
+testing<-buildData[-inTrain,]
+dim(training)
+dim(testing)
+dim(validation)
+```
+
+## Model buildings & cross validations
+The following R code builds a Random Forest model and tests its accuracy with the testing data set. 
+```{r}
+set.seed(12)
+##Using randomForest instead of caret (with the "rf" method) because it is much faster.
+mod1<-randomForest(classe~.,data=training)
+prediction1 <- predict(mod1, testing)
+cmrf <- confusionMatrix(prediction1, testing$classe)
+cmrf
+```
+As one can see, the accuracy rate of the random forest model, when tested against the testing data set, is over 99%. To see whether we can get a better accuracy rate, we next try the GBM model. 
+```{r}
+set.seed(13)
+fitControl <- trainControl(method = "repeatedcv", number = 5, repeats = 2)
+mod2 <- train(classe ~., method="gbm", data=training, trControl=fitControl, verbose=FALSE)  
+
+prediction2 <- predict(mod2, testing)
+cmrf2 <- confusionMatrix(prediction2, testing$classe)
+cmrf2
+
+```
+
+## Final cross validation
+As one can see, the accuracy rate of the GBM model is at about 96% and is significantly less than that of the random forest model. We decide, therefore, to forego the complexity of combining these two into a single ensembled method and will use the validation data set to double-check the accuracy of the random forest model instead.
+
+```{r}
+prediction3 <- predict(mod1, validation)
+cmrf3 <- confusionMatrix(prediction3, validation$classe)
+cmrf3
+```
+Given that the random forest model has once again performed well with an accuracy rate around 99%, we decide to use it as our final model, since its error rate is already likely to be only around 1%.
+
+## Perform the final testing
+
+The following R code applies the random forest model on the "test" dataset presented in the study.
+
+```{r}
+prediction4 <- predict(mod1, test)
+prediction4
+```
+
